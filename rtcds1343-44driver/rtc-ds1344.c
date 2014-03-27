@@ -1,6 +1,6 @@
 #include <linux/init.h>
-#include <linux/spi.h>
 #include <linux/module.h>
+#include <linux/spi.h> 
 #include <linux/rtc.h>
 
 static const struct rtc_class_ops ds1343_rtc_ops = {
@@ -22,3 +22,8 @@ static struct spi_driver ds1343_driver = {
 };
 
 module_spi_driver(ds1343_driver);
+
+MODULE_DESCRIPTION("DS1343 RTC SPI Driver");
+MODULE_AUTHOR("Raghavendra Chandra Ganiga <ravi23ganiga@gmail.com>");
+MODULE_LICENSE("GPL v2");
+MODULE_ALIAS("rtc:ds1343");
