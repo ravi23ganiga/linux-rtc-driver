@@ -10,3 +10,6 @@ then signed off by Andrew Morton
 
 and then uploaded to linux-next by
 Stephen Rothwell
+
+
+Currently working on RTC ds1343
