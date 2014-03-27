@@ -1,5 +1,5 @@
-Linux RTC Driver
-----------------
+Linux RTC Driver for Linux
+---------------------------
 
 Author: Raghavendra Chandra Ganiga <ravi23ganiga@gmail.com>
 
