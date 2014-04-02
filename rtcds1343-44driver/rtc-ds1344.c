@@ -42,7 +42,7 @@
 struct ds1343_priv {
 	struct spi_device *spi;
 	struct rtc_device *rtc;
-	struct mutex;
+	struct mutex mutex;
 };
 
 static int ds1343_get_reg(struct device *dev, unsigned char address,
@@ -69,8 +69,32 @@ static int ds1343_set_reg(struct device *dev, unsigned char address,
 
 static int ds1343_ioctl(struct device *dev, unsigned int cmd, unsigned long arg)
 {
+	switch(cmd)
+	{
+#ifdef RTC_SET_CHARGE 
+		case RTC_SET_CHARGE:
+		{
+			int val;
+	
+			if(copy_from_user(&val, (int __user *)arg, sizeof(int)))
+				return -EFAULT;
+
+			return ds1343_set_reg(dev, DS1343_TRICKLE_REG, val);
+		}		
+		break;
+#endif 
+	}
+	return -ENOIOCTLCMD;
+}
+
+#ifdef CONFIG_PROC_FS
+
+static int ds1343_proc(struct device *dev, struct seq_file *seq)
+{
 	return 0;
 }
+
+#endif
 
 static int ds1343_read_time(struct device *dev, struct rtc_time *dt)
 {
@@ -129,6 +153,101 @@ static int ds1343_set_time(struct device *dev, struct rtc_time *dt)
 		return res;
 	
 	return 0;
+}
+
+static int ds1343_read_alarm(struct device *dev, struct rtc_wkalrm *alarm)
+{
+	struct ds1343_priv *priv = dev_get_drvdata(dev);
+	struct spi_device *spi = priv->spi;
+	int res = 0;
+	unsigned char control, stat;
+	unsigned char buf[4];
+
+	mutex_lock(&priv->mutex);
+	
+	res = ds1343_get_reg(dev, DS1343_CONTROL_REG, &control);
+	if(res)
+		goto out;
+	
+	res = ds1343_get_reg(dev, DS1343_STATUS_REG, &stat);
+	if(res)
+		goto out;
+
+	buf[0] = DS1343_ALM0_SEC_REG;
+
+	res = spi_write_then_read(spi, buf, 1, buf, 4);
+	if(res)
+		goto out;
+
+	alarm->enabled = !!(control & DS1343_A0IE);
+	alarm->pending = !!(stat & DS1343_IRQF0);
+ 
+	alarm->time.tm_sec = bcd2bin(buf[0] & 0x7F);
+	alarm->time.tm_min = bcd2bin(buf[1] & 0x7F);
+	alarm->time.tm_hour = bcd2bin(buf[2] & 0x3F);
+	alarm->time.tm_mday = bcd2bin(buf[3] & 0x7F);
+
+	alarm->time.tm_mon = -1;
+	alarm->time.tm_year = -1;
+	alarm->time.tm_wday = -1;
+	alarm->time.tm_yday = -1;
+	alarm->time.tm_isdst = -1;
+
+out:
+	mutex_unlock(&priv->mutex);
+	return res;	
+}
+
+static int ds1343_set_alarm(struct device *dev, struct rtc_wkalrm *alarm)
+{
+	struct ds1343_priv *priv = dev_get_drvdata(dev);
+	struct spi_device *spi = priv->spi;
+	int res = 0;
+	unsigned char control,stat;
+	unsigned char buf[5];
+
+	if(spi->irq <= 0)
+		return -EINVAL;
+
+	mutex_lock(&priv->mutex);
+	
+	res = ds1343_get_reg(dev, DS1343_CONTROL_REG, &control);
+	if(res)
+		goto out;
+
+	res = ds1343_get_reg(dev, DS1343_STATUS_REG, &stat);
+	if(res)
+		goto out;
+
+	control &= ~(DS1343_A0IE);
+	stat &= ~(DS1343_IRQF0);
+
+	res = ds1343_set_reg(dev, DS1343_CONTROL_REG, control);
+	if(res)
+		goto out;
+
+	res = ds1343_set_reg(dev, DS1343_STATUS_REG, stat);
+	if(res)
+		goto out;
+
+	buf[0] = DS1343_ALM0_SEC_REG | 0x80;
+	buf[1] = bin2bcd(alarm->time.tm_sec) & 0x7F;
+	buf[2] = bin2bcd(alarm->time.tm_min) & 0x7F;
+	buf[3] = bin2bcd(alarm->time.tm_hour) 0x3F;
+	buf[4] = bin2bcd(alarm->time.tm_mday) 0x7F;
+	
+	res = spi_write_then_read(spi, buf, 5, NULL, 0);
+	if(res)
+		goto out;
+
+	if(alarm->enabled) {
+		control |= DS1343_A0IE;	
+		res = ds1343_set_reg(dev, DS1343_CONTROL_REG, control); 
+	}
+
+out:
+	mutex_unlock(&priv->mutex);
+	return res;
 }
 
 static const struct rtc_class_ops ds1343_rtc_ops = {
