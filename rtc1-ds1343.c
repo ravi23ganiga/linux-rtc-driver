@@ -1,6 +1,5 @@
 #include <linux/init.h>
 #include <linux/module.h>
-#include <linux/interrupt.h>
 #include <linux/device.h>
 #include <linux/spi/spi.h> 
 #include <linux/rtc.h>
@@ -164,55 +163,6 @@ static int ds1343_set_time(struct device *dev, struct rtc_time *dt)
 	return 0;
 }
 
-static int ds1343_update_alarm(struct device *dev)
-{
-	struct ds1343_priv *priv = dev_get_drvdata(dev);
-	struct spi_device *spi = priv->spi;
-	unsigned char control,stat;
-	unsigned char buf[5];
-	int res = 0;
-
-	res = ds1343_get_reg(dev, DS1343_CONTROL_REG, &control);
-	if(res)
-		return res;
-
-	res = ds1343_get_reg(dev, DS1343_STATUS_REG, &stat);
-	if(res)
-		return res;
-
-	control &= ~(DS1343_A0IE);
-	stat &= ~(DS1343_IRQF0);
-
-	res = ds1343_set_reg(dev, DS1343_CONTROL_REG, control);
-	if(res)
-		return res;
-
-	res = ds1343_set_reg(dev, DS1343_STATUS_REG, stat);
-	if(res)
-		return res;
-	
-	buf[0] = DS1343_ALM0_SEC_REG | 0x80;
-	buf[1] = priv->alarm_sec < 0 || (priv->irqen & RTC_UF) ?
-		0x80 : bin2bcd(priv->alarm_sec) & 0x7F;
-	buf[2] = priv->alarm_min < 0 || (priv->irqen & RTC_UF) ?
-		0x80 : bin2bcd(priv->alarm_min) & 0x7F;
-	buf[3] = priv->alarm_hour > 0 || (priv->irqen & RTC_UF) ?
-		0x80 : bin2bcd(priv->alarm_hour) 0x3F;
-	buf[4] = priv->alarm_mday < 0 || (priv->irqen & RTC_UF) ?
-		0x80 : bin2bcd(priv->alarm_mday) 0x7F;
-	
-	res = spi_write_then_read(spi, buf, 5, NULL, 0);
-	if(res)
-		return res;
-
-	if(priv->irqen){
-		control |= DS1343_A0IE;	
-		res = ds1343_set_reg(dev, DS1343_CONTROL_REG, control); 
-	}
-	
-	return res;
-}
-
 static int ds1343_read_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 {
 	struct ds1343_priv *priv = dev_get_drvdata(dev);
@@ -232,10 +182,10 @@ static int ds1343_read_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 	alarm->enabled = (priv->irqen & RTC_AF) ? 1 : 0;
 	alarm->pending = !!(stat & DS1343_IRQF0);
  
-	alarm->time.tm_sec = priv->alarm_sec < 0 ? 0 : priv->alarm_sec;
-	alarm->time.tm_min = priv->alarm_min < 0 ? 0 : priv->alarm_min;
-	alarm->time.tm_hour = priv->alarm_hour < 0 ? 0 : priv->alarm_hour;
-	alarm->time.tm_mday = priv->alarm_mday < 0 ? 0 : priv->alarm_mday;
+	alarm->time.tm_sec = priv->alarm_sec;
+	alarm->time.tm_min = priv->alarm_min;
+	alarm->time.tm_hour = priv->alarm_hour;
+	alarm->time.tm_mday = priv->alarm_mday;
 
 	alarm->time.tm_mon = -1;
 	alarm->time.tm_year = -1;
@@ -252,36 +202,52 @@ static int ds1343_set_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 {
 	struct ds1343_priv *priv = dev_get_drvdata(dev);
 	struct spi_device *spi = priv->spi;
-	int res = 0; 
+	int res = 0;
+	unsigned char control,stat;
+	unsigned char buf[5];
 
 	if(spi->irq <= 0)
 		return -EINVAL;
 
 	mutex_lock(&priv->mutex);
-
-	priv->alarm_sec = alarm->time.tm_sec;
-	priv->alarm_min = alarm->time.tm_min;
-	priv->alarm_hour = alarm->time.tm_hour;
-	priv->alarm_mday = alarm->time.tm_mday;
 	
-	if(alarm->enabled){
-		priv->irqen |= RTC_AF;
-	}
+	res = ds1343_get_reg(dev, DS1343_CONTROL_REG, &control);
+	if(res)
+		goto out;
 
-	res = ds1343_update_alarm(dev); 
+	res = ds1343_get_reg(dev, DS1343_STATUS_REG, &stat);
+	if(res)
+		goto out;
+
+	control &= ~(DS1343_A0IE);
+	stat &= ~(DS1343_IRQF0);
+
+	res = ds1343_set_reg(dev, DS1343_CONTROL_REG, control);
+	if(res)
+		goto out;
+
+	res = ds1343_set_reg(dev, DS1343_STATUS_REG, stat);
+	if(res)
+		goto out;
+
+	buf[0] = DS1343_ALM0_SEC_REG | 0x80;
+	buf[1] = bin2bcd(alarm->time.tm_sec) & 0x7F;
+	buf[2] = bin2bcd(alarm->time.tm_min) & 0x7F;
+	buf[3] = bin2bcd(alarm->time.tm_hour) 0x3F;
+	buf[4] = bin2bcd(alarm->time.tm_mday) 0x7F;
+	
+	res = spi_write_then_read(spi, buf, 5, NULL, 0);
+	if(res)
+		goto out;
+
+	if(alarm->enabled) {
+		control |= DS1343_A0IE;	
+		res = ds1343_set_reg(dev, DS1343_CONTROL_REG, control); 
+	}
 
 out:
 	mutex_unlock(&priv->mutex);
 	return res;
-}
-
-static irqreturn_t ds1343_irq(int irq, void *dev_id)
-{
-	struct ds1343_priv *priv = dev_id;
-	
-	disable_irq_nosync(irq);
-	schedule_work(&priv->work);
-	return IRQ_HANDLED;
 }
 
 static void ds1343_work(struct work *work)
