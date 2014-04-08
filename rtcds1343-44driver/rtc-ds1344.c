@@ -275,6 +275,28 @@ out:
 	return res;
 }
 
+static int ds1343_alarm_irq_enable(struct device *dev, unsigned int enabled)
+{
+	struct ds1343_priv *priv = dev_get_drvdata(dev);
+	struct spi_device *spi = priv->spi;
+	int res = 0;
+
+	if(spi->irq <= 0)
+		return -EINVAL;
+
+	mutex_lock(&priv->mutex);
+
+	if(enabled)
+		priv->irqen |= RTC_AF;
+	else
+		priv->irqen &= ~RTC_AF;
+
+	res = ds1343_update_alarm(dev);
+
+	mutex_unlock(&priv->mutex);
+	return res;
+}
+
 static irqreturn_t ds1343_irq(int irq, void *dev_id)
 {
 	struct ds1343_priv *priv = dev_id;
@@ -286,6 +308,36 @@ static irqreturn_t ds1343_irq(int irq, void *dev_id)
 
 static void ds1343_work(struct work *work)
 {
+	struct ds1343_priv *priv = container_of(work, struct ds1343_priv, work);
+	struct spi_device *spi = priv->spi;
+	unsigned char stat,control;
+	int res = 0;
+
+	mutex_lock(&priv->mutex);
+
+	res = ds1343_read_reg(&spi->dev, DS1343_STATUS_REG, &stat);
+	if(res)
+		goto out;
+
+	if(stat & DS1343_IRQF0){
+		stat &= ~ DS1343_IRQF0;
+		ds1343_set_reg(&spi->dev, DS1343_STATUS_REG, stat);
+		
+		res = ds1343_read_reg(&spi->dev, DS1343_CONTROL_REG, &control);
+		if(res)
+			goto out;
+
+		control &= ~DS1343_A0IE;
+		ds1343_set_reg(&spi->dev, DS1343_CONTROL_REG, control);
+
+		rtc_update_irq(priv->rtc, 1, RTC_AF | RTC_IRQF);
+	}
+
+out:
+	if(priv->irqen)
+		enable_irq(spi->irq);
+
+	mutex_unlock(&priv->mutex);
 }
 
 static const struct rtc_class_ops ds1343_rtc_ops = {
@@ -301,7 +353,7 @@ static const struct rtc_class_ops ds1343_rtc_ops = {
 static int ds1343_probe(struct spi_device *spi)
 {
 	struct ds1343_priv *priv; 
-	int data;
+	unsigned char data;
 	int res;
 
 	priv = devm_kzalloc(&spi->dev, sizeof(struct ds1343_priv), GFP_KERNEL);
@@ -356,12 +408,31 @@ static int ds1343_probe(struct spi_device *spi)
 	return 0;
 }
 
+static int ds1343_remove(struct spi_device *spi)
+{
+	struct ds1343_priv *priv = spi_get_drvdata(spi);
+	
+	if(spi->irq){
+		mutex_lock(&priv->mutex);
+		priv->irqen &= ~RTC_AF;
+		mutex_unlock(&priv->mutex);
+
+		devm_free_irq(&spi->dev, spi->irq, priv);
+		cancel_work_sync(&ds1343->work);
+	}
+
+	spi_set_drvdata(NULL);
+	
+	return 0;
+}
+
 static struct spi_driver ds1343_driver = {
 	.driver = {
 		.name = "ds1343",
 		.owner = THIS_MODULE,
 	},
 	.probe = ds1343_probe,
+	.remove = ds1343_remove,
 };
 
 module_spi_driver(ds1343_driver);
@@ -370,4 +441,4 @@ MODULE_DESCRIPTION("DS1343 RTC SPI Driver");
 MODULE_AUTHOR("Raghavendra Chandra Ganiga <ravi23ganiga@gmail.com>");
 MODULE_LICENSE("GPL v2");
 MODULE_VERSION(DS1343_DRV_VERSION);
-MODULE_ALIAS("rtc:ds1343");
+MODULE_ALIAS("rtc:ds1343"); 
