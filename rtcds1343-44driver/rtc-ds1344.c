@@ -33,14 +33,24 @@
 
 /* DS1343 Control Registers bits */
 #define DS1343_EOSC		0x80
+#define DS1343_DOSF		0x20
+#define DS1343_EGFIL		0x10
+#define DS1343_SQW		0x08
 #define DS1343_INTCN		0x04
 #define DS1343_A1IE		0x02
 #define DS1343_A0IE		0x01
 
 /* DS1343 Status Registers bits */
-#define DS1343_OSF	0x80
-#define DS1343_IRQF1	0x20
-#define DS1343_IRQF0	0x01
+#define DS1343_OSF		0x80
+#define DS1343_IRQF1		0x20
+#define DS1343_IRQF0		0x01
+
+/* DS1343 Trickle Charger Registers bits */
+#define DS1343_TRICKLE_MAGIC 	0xa0
+#define DS1343_TRICKLE_DS1	0x08
+#define DS1343_TRICKLE_1K	0x01
+#define DS1343_TRICKLE_2K	0x02
+#define DS1343_TRICKLE_4K	0x03
 
 static const struct spi_device_id ds1343_id[] = {
 	{ "ds1343", 0 },
@@ -58,7 +68,6 @@ struct ds1343_priv {
 	int alarm_min;
 	int alarm_hour;
 	int alarm_mday;
-	unsigned long prev_jiffies; 
 };
 
 static int ds1343_get_reg(struct device *dev, unsigned char address,
@@ -107,8 +116,114 @@ static int ds1343_ioctl(struct device *dev, unsigned int cmd, unsigned long arg)
 
 static int ds1343_proc(struct device *dev, struct seq_file *seq)
 {
-	return 0;
+	struct ds1343_priv *priv = dev_get_drvdata(dev);
+	struct  spi_device *spi = priv->spi;
+	unsigned char data, alarm_mode = 0;
+	const char *alarm_str, *diodes = "disabled", *resistors = " ";
+	
+	ds1343_read_reg(&spi->dev, DS1343_CONTROL_REG, &data);
+
+	seq_printf(seq,
+			"oscillator\t: %s\n"
+			"disable_oscillator_stop_flag\t: %s\n"
+			"glitch_filter\t: %s\n"
+			"square_wave\t: %s\n"
+			"alarm_enable\t: %s\n",
+			(data & DS1343_EOSC) ? "disabled" : "enabled",
+			(data & DS1343_DOSF) ? "disabled" : "enabled",
+			(data & DS1343_EGFIL) ? "enabled" : "disabled",
+			(data & DS1343_SQW) ? "enabled" : "disabled",
+			(data & DS1343_A0IE) ? "enabled" : "disabled" );
+
+	ds1343_read_reg(&spi->dev, DS1343_ALM0_SEC_REG, &data);
+	alarm_mode = (data & 0x80) >> 4;
+
+	ds1343_read_reg(&spi->dev, DS1343_ALM0_MIN_REG, &data);
+	alarm_mode |= (data & 0x80) >> 5;
+
+	ds1343_read_reg(&spi->dev, DS1343_ALM0_HOUR_REG, &data);
+	alarm_mode |= (data & 0x80) >> 6;
+
+	ds1343_read_reg(&spi->dev, DS1343_ALM0_DAY_REG, &data);
+	alarm_mode |= (data & 0x80) >> 7;
+
+	switch(alarm_mode) {
+	case 15:
+		alarm_str = "each second";
+		break;
+
+	case 7:
+		alarm_str = "seconds match";
+		break;
+
+	case 3:
+		alarm_str = "minutes and seconds match";
+		break;
+
+	case 1:
+		alarm_str = "hours, minutes and seconds match";
+		break;
+
+	case 0:
+		alarm_str = "day, hours, minutes and seconds match";
+		break;
+
+	default:
+		alarm_str = "invalid";
+		break;
+	}
+	
+	seq_printf(seq, "alarm_mode\t: %s\n", alarm_str);
+
+	ds1343_get_reg(dev, DS1343_STATUS_REG, &data);
+	seq_printf(seq,
+			"alarm_pending\t: %s\n"
+			"oscillator_stop_flag\t: %s\n",
+			(data & DS1343_IRQF0) ? "yes" : "no",
+			(data & DS1343_OSF) ? "1" : "0" );
+
+	ds1343_get_reg(dev, DS1343_TRICKLE_REG, &data);
+	
+	if((data & 0xf0) == DS1343_TRICKLE_MAGIC) {
+		switch(data & 0x0c) {
+		case DS1343_TRICKLE_DS1:
+			diodes = "one diode,";
+			break;
+
+		default:
+			diodes = "no diode,";
+			break;	
+		}
+
+		switch(data & 0x03) {
+		case DS1343_TRICKLE_1K:
+			resistors= "1k Ohm";
+			break;
+
+		case DS1343_TRICKLE_2K:
+			resistors= "2k Ohm";
+			break;
+
+		case DS1343_TRICKLE_4K:
+			resistors= "4k Ohm";
+			break;
+
+		default:
+			diodes = "disabled";
+			break;
+		}
+	}
+
+	seq_printf(seq,
+			"trickle_charger\t: %s %s\n",
+			diodes, resistors);
+
+	return 0; 
 }
+
+#else
+
+#define ds1343_proc NULL
 
 #endif
 
@@ -370,7 +485,6 @@ static int ds1343_probe(struct spi_device *spi)
 	priv->spi = spi;
 	mutex_init(&priv->mutex); 
 	INIT_WORK(&priv->work, ds1343_work);
-	priv->prev_jiffies = jiffies;
 	
 	/* RTC DS1347 works in spi mode 3 and
 	 * its chip select is active high
