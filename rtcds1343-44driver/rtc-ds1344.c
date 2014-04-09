@@ -452,7 +452,7 @@ static int ds1343_resume(struct device *dev)
 	struct spi_device *spi = to_spi_device(dev);
 
 	if(spi->irq >= 0 && device_may_wakeup(dev))
-		disable_irq_wakeup(spi->irq);
+		disable_irq_wake(spi->irq);
 
 	return 0;
 }
