@@ -5,6 +5,7 @@
 #include <linux/spi/spi.h> 
 #include <linux/rtc.h>
 #include <linux/bcd.h>
+#include <linux/pm.h>
 #include <linux/slab.h>
 #include <linux/workqueue.h>
 
@@ -40,6 +41,12 @@
 #define DS1343_OSF	0x80
 #define DS1343_IRQF1	0x20
 #define DS1343_IRQF0	0x01
+
+static const struct spi_device_id ds1343_id[] = {
+	{ "ds1343", 0 },
+	{ "ds1344", 1 },
+	{ }
+};
 
 struct ds1343_priv {
 	struct spi_device *spi;
@@ -403,6 +410,8 @@ static int ds1343_probe(struct spi_device *spi)
 			dev_err(&spi->dev, "unable to request irq for rtc ds1343\n");
 			return res;
 		}
+		
+		device_set_wakeup_capable(&spi->dev, 1);
 	}
 
 	return 0;
@@ -426,13 +435,41 @@ static int ds1343_remove(struct spi_device *spi)
 	return 0;
 }
 
+#ifdef CONFIG_PM_SLEEP
+
+static int ds1343_suspend(struct device *dev)
+{
+	struct spi_device *spi = to_spi_device(dev);
+	
+	if(spi->irq >= 0 && device_may_wakeup(dev))
+		enable_irq_wake(spi->irq);
+
+	return 0;
+}
+
+static int ds1343_resume(struct device *dev)
+{
+	struct spi_device *spi = to_spi_device(dev);
+
+	if(spi->irq >= 0 && device_may_wakeup(dev))
+		disable_irq_wakeup(spi->irq);
+
+	return 0;
+}
+
+#endif
+
+static SIMPLE_DEV_PM_OPS(ds1343_pm, ds1343_suspend, ds1343_resume);
+
 static struct spi_driver ds1343_driver = {
 	.driver = {
 		.name = "ds1343",
 		.owner = THIS_MODULE,
+		.pm = &ds1343_pm,
 	},
 	.probe = ds1343_probe,
 	.remove = ds1343_remove,
+	.id_table = ds1343_id,
 };
 
 module_spi_driver(ds1343_driver);
@@ -441,4 +478,3 @@ MODULE_DESCRIPTION("DS1343 RTC SPI Driver");
 MODULE_AUTHOR("Raghavendra Chandra Ganiga <ravi23ganiga@gmail.com>");
 MODULE_LICENSE("GPL v2");
 MODULE_VERSION(DS1343_DRV_VERSION);
-MODULE_ALIAS("rtc:ds1343"); 
