@@ -15,7 +15,7 @@
 #include <linux/module.h>
 #include <linux/interrupt.h>
 #include <linux/device.h>
-#include <linux/spi/spi.h> 
+#include <linux/spi/spi.h>
 #include <linux/rtc.h>
 #include <linux/bcd.h>
 #include <linux/pm.h>
@@ -59,7 +59,7 @@
 #define DS1343_IRQF0		0x01
 
 /* DS1343 Trickle Charger Registers bits */
-#define DS1343_TRICKLE_MAGIC 	0xa0
+#define DS1343_TRICKLE_MAGIC	0xa0
 #define DS1343_TRICKLE_DS1	0x08
 #define DS1343_TRICKLE_1K	0x01
 #define DS1343_TRICKLE_2K	0x02
@@ -100,32 +100,32 @@ static int ds1343_set_reg(struct device *dev, unsigned char address,
 {
 	struct spi_device *spi = to_spi_device(dev);
 	unsigned char buf[2];
-	
+
 	/* MSB of the spi address                        _
 	   in this rtc should be one for write operation R/W */
 	buf[0] = address | 0x80;
 	buf[1] = data;
-	
+
 	return spi_write_then_read(spi, buf, 2, NULL, 0);
 }
 
 static int ds1343_ioctl(struct device *dev, unsigned int cmd, unsigned long arg)
 {
-	switch(cmd)
+	switch (cmd) {
+#ifdef RTC_SET_CHARGE
+	case RTC_SET_CHARGE:
 	{
-#ifdef RTC_SET_CHARGE 
-		case RTC_SET_CHARGE:
-		{
-			int val;
-	
-			if(copy_from_user(&val, (int __user *)arg, sizeof(int)))
-				return -EFAULT;
+		int val;
 
-			return ds1343_set_reg(dev, DS1343_TRICKLE_REG, val);
-		}		
-		break;
-#endif 
+		if (copy_from_user(&val, (int __user *)arg, sizeof(int)))
+			return -EFAULT;
+
+		return ds1343_set_reg(dev, DS1343_TRICKLE_REG, val);
 	}
+	break;
+#endif
+	}
+
 	return -ENOIOCTLCMD;
 }
 
@@ -137,8 +137,8 @@ static int ds1343_proc(struct device *dev, struct seq_file *seq)
 	struct  spi_device *spi = priv->spi;
 	unsigned char data, alarm_mode = 0;
 	const char *alarm_str, *diodes = "disabled", *resistors = " ";
-	
-	ds1343_read_reg(&spi->dev, DS1343_CONTROL_REG, &data);
+
+	ds1343_get_reg(&spi->dev, DS1343_CONTROL_REG, &data);
 
 	seq_printf(seq,
 			"oscillator\t: %s\n"
@@ -150,21 +150,21 @@ static int ds1343_proc(struct device *dev, struct seq_file *seq)
 			(data & DS1343_DOSF) ? "disabled" : "enabled",
 			(data & DS1343_EGFIL) ? "enabled" : "disabled",
 			(data & DS1343_SQW) ? "enabled" : "disabled",
-			(data & DS1343_A0IE) ? "enabled" : "disabled" );
+			(data & DS1343_A0IE) ? "enabled" : "disabled");
 
-	ds1343_read_reg(&spi->dev, DS1343_ALM0_SEC_REG, &data);
+	ds1343_get_reg(&spi->dev, DS1343_ALM0_SEC_REG, &data);
 	alarm_mode = (data & 0x80) >> 4;
 
-	ds1343_read_reg(&spi->dev, DS1343_ALM0_MIN_REG, &data);
+	ds1343_get_reg(&spi->dev, DS1343_ALM0_MIN_REG, &data);
 	alarm_mode |= (data & 0x80) >> 5;
 
-	ds1343_read_reg(&spi->dev, DS1343_ALM0_HOUR_REG, &data);
+	ds1343_get_reg(&spi->dev, DS1343_ALM0_HOUR_REG, &data);
 	alarm_mode |= (data & 0x80) >> 6;
 
-	ds1343_read_reg(&spi->dev, DS1343_ALM0_DAY_REG, &data);
+	ds1343_get_reg(&spi->dev, DS1343_ALM0_DAY_REG, &data);
 	alarm_mode |= (data & 0x80) >> 7;
 
-	switch(alarm_mode) {
+	switch (alarm_mode) {
 	case 15:
 		alarm_str = "each second";
 		break;
@@ -189,7 +189,7 @@ static int ds1343_proc(struct device *dev, struct seq_file *seq)
 		alarm_str = "invalid";
 		break;
 	}
-	
+
 	seq_printf(seq, "alarm_mode\t: %s\n", alarm_str);
 
 	ds1343_get_reg(dev, DS1343_STATUS_REG, &data);
@@ -197,32 +197,32 @@ static int ds1343_proc(struct device *dev, struct seq_file *seq)
 			"alarm_pending\t: %s\n"
 			"oscillator_stop_flag\t: %s\n",
 			(data & DS1343_IRQF0) ? "yes" : "no",
-			(data & DS1343_OSF) ? "1" : "0" );
+			(data & DS1343_OSF) ? "1" : "0");
 
 	ds1343_get_reg(dev, DS1343_TRICKLE_REG, &data);
-	
-	if((data & 0xf0) == DS1343_TRICKLE_MAGIC) {
-		switch(data & 0x0c) {
+
+	if ((data & 0xf0) == DS1343_TRICKLE_MAGIC) {
+		switch (data & 0x0c) {
 		case DS1343_TRICKLE_DS1:
 			diodes = "one diode,";
 			break;
 
 		default:
 			diodes = "no diode,";
-			break;	
+			break;
 		}
 
-		switch(data & 0x03) {
+		switch (data & 0x03) {
 		case DS1343_TRICKLE_1K:
-			resistors= "1k Ohm";
+			resistors = "1k Ohm";
 			break;
 
 		case DS1343_TRICKLE_2K:
-			resistors= "2k Ohm";
+			resistors = "2k Ohm";
 			break;
 
 		case DS1343_TRICKLE_4K:
-			resistors= "4k Ohm";
+			resistors = "4k Ohm";
 			break;
 
 		default:
@@ -235,7 +235,7 @@ static int ds1343_proc(struct device *dev, struct seq_file *seq)
 			"trickle_charger\t: %s %s\n",
 			diodes, resistors);
 
-	return 0; 
+	return 0;
 }
 
 #else
@@ -253,7 +253,7 @@ static int ds1343_read_time(struct device *dev, struct rtc_time *dt)
 	buf[0] = DS1343_SECONDS_REG;
 
 	res = spi_write_then_read(spi, buf, 1, buf, 7);
-	if(res)
+	if (res)
 		return res;
 
 	dt->tm_sec	= bcd2bin(buf[0]);
@@ -262,44 +262,51 @@ static int ds1343_read_time(struct device *dev, struct rtc_time *dt)
 	dt->tm_wday	= bcd2bin(buf[3]) - 1;
 	dt->tm_mday	= bcd2bin(buf[4]);
 	dt->tm_mon	= bcd2bin(buf[5] & 0x1F) - 1;
-	dt->tm_year	= bcd2bin(buf[6]) + 100;
-	
+	dt->tm_year	= bcd2bin(buf[6]) + 100; /* year offset from 1900 */
+
 	return rtc_valid_tm(dt);
 }
 
 static int ds1343_set_time(struct device *dev, struct rtc_time *dt)
 {
 	int res;
-	res = ds1343_set_reg(dev, DS1343_SECONDS_REG, bin2bcd(dt->tm_sec));
-	if(res)
+	res = ds1343_set_reg(dev, DS1343_SECONDS_REG,
+				bin2bcd(dt->tm_sec));
+	if (res)
 		return res;
 
-	res = ds1343_set_reg(dev, DS1343_MINUTES_REG, bin2bcd(dt->tm_min));
-	if(res)
+	res = ds1343_set_reg(dev, DS1343_MINUTES_REG,
+				bin2bcd(dt->tm_min));
+	if (res)
 		return res;
 
-	res = ds1343_set_reg(dev, DS1343_HOURS_REG, bin2bcd(dt->tm_hour) & 0x3F);
-	if(res)
+	res = ds1343_set_reg(dev, DS1343_HOURS_REG,
+				bin2bcd(dt->tm_hour) & 0x3F);
+	if (res)
 		return res;
 
-	res = ds1343_set_reg(dev, DS1343_DAY_REG, bin2bcd(dt->tm_wday + 1));
-	if(res)
+	res = ds1343_set_reg(dev, DS1343_DAY_REG,
+				bin2bcd(dt->tm_wday + 1));
+	if (res)
 		return res;
 
-	res = ds1343_set_reg(dev, DS1343_DATE_REG, bin2bcd(dt->tm_mday));
-	if(res)
+	res = ds1343_set_reg(dev, DS1343_DATE_REG,
+				bin2bcd(dt->tm_mday));
+	if (res)
 		return res;
 
-	res = ds1343_set_reg(dev, DS1343_MONTH_REG, bin2bcd(dt->tm_mon + 1));
-	if(res)
+	res = ds1343_set_reg(dev, DS1343_MONTH_REG,
+				bin2bcd(dt->tm_mon + 1));
+	if (res)
 		return res;
 
 	dt->tm_year %= 100;
 
-	res = ds1343_set_reg(dev, DS1343_YEAR_REG, bin2bcd(dt->tm_year));
-	if(res)
+	res = ds1343_set_reg(dev, DS1343_YEAR_REG,
+				bin2bcd(dt->tm_year));
+	if (res)
 		return res;
-	
+
 	return 0;
 }
 
@@ -307,48 +314,48 @@ static int ds1343_update_alarm(struct device *dev)
 {
 	struct ds1343_priv *priv = dev_get_drvdata(dev);
 	struct spi_device *spi = priv->spi;
-	unsigned char control,stat;
+	unsigned char control, stat;
 	unsigned char buf[5];
 	int res = 0;
 
 	res = ds1343_get_reg(dev, DS1343_CONTROL_REG, &control);
-	if(res)
+	if (res)
 		return res;
 
 	res = ds1343_get_reg(dev, DS1343_STATUS_REG, &stat);
-	if(res)
+	if (res)
 		return res;
 
 	control &= ~(DS1343_A0IE);
 	stat &= ~(DS1343_IRQF0);
 
 	res = ds1343_set_reg(dev, DS1343_CONTROL_REG, control);
-	if(res)
+	if (res)
 		return res;
 
 	res = ds1343_set_reg(dev, DS1343_STATUS_REG, stat);
-	if(res)
+	if (res)
 		return res;
-	
+
 	buf[0] = DS1343_ALM0_SEC_REG | 0x80;
 	buf[1] = priv->alarm_sec < 0 || (priv->irqen & RTC_UF) ?
 		0x80 : bin2bcd(priv->alarm_sec) & 0x7F;
 	buf[2] = priv->alarm_min < 0 || (priv->irqen & RTC_UF) ?
 		0x80 : bin2bcd(priv->alarm_min) & 0x7F;
 	buf[3] = priv->alarm_hour < 0 || (priv->irqen & RTC_UF) ?
-		0x80 : bin2bcd(priv->alarm_hour) 0x3F;
+		0x80 : bin2bcd(priv->alarm_hour) & 0x3F;
 	buf[4] = priv->alarm_mday < 0 || (priv->irqen & RTC_UF) ?
-		0x80 : bin2bcd(priv->alarm_mday) 0x7F;
-	
+		0x80 : bin2bcd(priv->alarm_mday) & 0x7F;
+
 	res = spi_write_then_read(spi, buf, 5, NULL, 0);
-	if(res)
+	if (res)
 		return res;
 
-	if(priv->irqen){
-		control |= DS1343_A0IE;	
-		res = ds1343_set_reg(dev, DS1343_CONTROL_REG, control); 
+	if (priv->irqen) {
+		control |= DS1343_A0IE;
+		res = ds1343_set_reg(dev, DS1343_CONTROL_REG, control);
 	}
-	
+
 	return res;
 }
 
@@ -357,20 +364,20 @@ static int ds1343_read_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 	struct ds1343_priv *priv = dev_get_drvdata(dev);
 	struct spi_device *spi = priv->spi;
 	int res = 0;
-	unsigned char stat; 
-	
-	if(spi->irq <= 0)
+	unsigned char stat;
+
+	if (spi->irq <= 0)
 		return -EINVAL;
 
 	mutex_lock(&priv->mutex);
-	
+
 	res = ds1343_get_reg(dev, DS1343_STATUS_REG, &stat);
-	if(res)
-		goto out; 
+	if (res)
+		goto out;
 
 	alarm->enabled = !!(priv->irqen & RTC_AF);
 	alarm->pending = !!(stat & DS1343_IRQF0);
- 
+
 	alarm->time.tm_sec = priv->alarm_sec < 0 ? 0 : priv->alarm_sec;
 	alarm->time.tm_min = priv->alarm_min < 0 ? 0 : priv->alarm_min;
 	alarm->time.tm_hour = priv->alarm_hour < 0 ? 0 : priv->alarm_hour;
@@ -393,7 +400,7 @@ static int ds1343_set_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 	struct spi_device *spi = priv->spi;
 	int res = 0;
 
-	if(spi->irq <= 0)
+	if (spi->irq <= 0)
 		return -EINVAL;
 
 	mutex_lock(&priv->mutex);
@@ -402,11 +409,11 @@ static int ds1343_set_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 	priv->alarm_min = alarm->time.tm_min;
 	priv->alarm_hour = alarm->time.tm_hour;
 	priv->alarm_mday = alarm->time.tm_mday;
-	
-	if(alarm->enabled)
+
+	if (alarm->enabled)
 		priv->irqen |= RTC_AF;
 
-	res = ds1343_update_alarm(dev); 
+	res = ds1343_update_alarm(dev);
 
 	mutex_unlock(&priv->mutex);
 
@@ -419,12 +426,12 @@ static int ds1343_alarm_irq_enable(struct device *dev, unsigned int enabled)
 	struct spi_device *spi = priv->spi;
 	int res = 0;
 
-	if(spi->irq <= 0)
+	if (spi->irq <= 0)
 		return -EINVAL;
 
 	mutex_lock(&priv->mutex);
 
-	if(enabled)
+	if (enabled)
 		priv->irqen |= RTC_AF;
 	else
 		priv->irqen &= ~RTC_AF;
@@ -439,31 +446,31 @@ static int ds1343_alarm_irq_enable(struct device *dev, unsigned int enabled)
 static irqreturn_t ds1343_irq(int irq, void *dev_id)
 {
 	struct ds1343_priv *priv = dev_id;
-	
+
 	disable_irq_nosync(irq);
 	schedule_work(&priv->work);
 	return IRQ_HANDLED;
 }
 
-static void ds1343_work(struct work *work)
+static void ds1343_work(struct work_struct *work)
 {
 	struct ds1343_priv *priv = container_of(work, struct ds1343_priv, work);
 	struct spi_device *spi = priv->spi;
-	unsigned char stat,control;
+	unsigned char stat, control;
 	int res = 0;
 
 	mutex_lock(&priv->mutex);
 
-	res = ds1343_read_reg(&spi->dev, DS1343_STATUS_REG, &stat);
-	if(res)
+	res = ds1343_get_reg(&spi->dev, DS1343_STATUS_REG, &stat);
+	if (res)
 		goto out;
 
-	if(stat & DS1343_IRQF0){
-		stat &= ~ DS1343_IRQF0;
+	if (stat & DS1343_IRQF0) {
+		stat &= ~DS1343_IRQF0;
 		ds1343_set_reg(&spi->dev, DS1343_STATUS_REG, stat);
-		
-		res = ds1343_read_reg(&spi->dev, DS1343_CONTROL_REG, &control);
-		if(res)
+
+		res = ds1343_get_reg(&spi->dev, DS1343_CONTROL_REG, &control);
+		if (res)
 			goto out;
 
 		control &= ~DS1343_A0IE;
@@ -473,7 +480,7 @@ static void ds1343_work(struct work *work)
 	}
 
 out:
-	if(priv->irqen)
+	if (priv->irqen)
 		enable_irq(spi->irq);
 
 	mutex_unlock(&priv->mutex);
@@ -482,8 +489,8 @@ out:
 static const struct rtc_class_ops ds1343_rtc_ops = {
 	.ioctl		= ds1343_ioctl,
 	.proc		= ds1343_proc,
-	.read_time 	= ds1343_read_time,
-	.set_time 	= ds1343_set_time,
+	.read_time	= ds1343_read_time,
+	.set_time	= ds1343_set_time,
 	.read_alarm	= ds1343_read_alarm,
 	.set_alarm	= ds1343_set_alarm,
 	.alarm_irq_enable = ds1343_alarm_irq_enable,
@@ -491,57 +498,57 @@ static const struct rtc_class_ops ds1343_rtc_ops = {
 
 static int ds1343_probe(struct spi_device *spi)
 {
-	struct ds1343_priv *priv; 
+	struct ds1343_priv *priv;
 	unsigned char data;
 	int res;
 
 	priv = devm_kzalloc(&spi->dev, sizeof(struct ds1343_priv), GFP_KERNEL);
-	if(!priv)
+	if (!priv)
 		return -ENOMEM;
-	
+
 	priv->spi = spi;
-	mutex_init(&priv->mutex); 
+	mutex_init(&priv->mutex);
 	INIT_WORK(&priv->work, ds1343_work);
-	
+
 	/* RTC DS1347 works in spi mode 3 and
 	 * its chip select is active high
 	 */
 	spi->mode = SPI_MODE_3 | SPI_CS_HIGH;
 	spi->bits_per_word = 8;
 	res = spi_setup(spi);
-	if(res)
+	if (res)
 		return res;
 
 	spi_set_drvdata(spi, priv);
 
 	res = ds1343_get_reg(&spi->dev, DS1343_SECONDS_REG, &data);
-	if(res)
+	if (res)
 		return res;
 
-	ds1343_read_reg(&spi->dev, DS1343_CONTROL_REG, &data);
+	ds1343_get_reg(&spi->dev, DS1343_CONTROL_REG, &data);
 	data |= DS1343_INTCN;
 	data &= ~(DS1343_EOSC | DS1343_A1IE | DS1343_A0IE);
 	ds1343_set_reg(&spi->dev, DS1343_CONTROL_REG, data);
 
-	ds1343_read_reg(&spi->dev, DS1343_STATUS_REG, &data);
+	ds1343_get_reg(&spi->dev, DS1343_STATUS_REG, &data);
 	data &= ~(DS1343_OSF | DS1343_IRQF1 | DS1343_IRQF0);
 	ds1343_set_reg(&spi->dev, DS1343_STATUS_REG, data);
 
 	priv->rtc = devm_rtc_device_register(&spi->dev, "ds1343",
 					&ds1343_rtc_ops, THIS_MODULE);
-	if(IS_ERR(priv->rtc)) {
+	if (IS_ERR(priv->rtc)) {
 		dev_err(&spi->dev, "unable to register rtc ds1343\n");
 		return PTR_ERR(priv->rtc);
 	}
 
-	if(spi->irq >= 0) { 
+	if (spi->irq >= 0) {
 		res = devm_request_irq(&spi->dev, spi->irq, ds1343_irq, 0,
 				"ds1343", priv);
-		if(res) {
+		if (res) {
 			dev_err(&spi->dev, "unable to request irq for rtc ds1343\n");
 			return res;
 		}
-		
+
 		device_set_wakeup_capable(&spi->dev, 1);
 	}
 
@@ -551,18 +558,18 @@ static int ds1343_probe(struct spi_device *spi)
 static int ds1343_remove(struct spi_device *spi)
 {
 	struct ds1343_priv *priv = spi_get_drvdata(spi);
-	
-	if(spi->irq){
+
+	if (spi->irq) {
 		mutex_lock(&priv->mutex);
 		priv->irqen &= ~RTC_AF;
 		mutex_unlock(&priv->mutex);
 
 		devm_free_irq(&spi->dev, spi->irq, priv);
-		cancel_work_sync(&ds1343->work);
+		cancel_work_sync(&priv->work);
 	}
 
-	spi_set_drvdata(NULL);
-	
+	spi_set_drvdata(spi, NULL);
+
 	return 0;
 }
 
@@ -571,8 +578,8 @@ static int ds1343_remove(struct spi_device *spi)
 static int ds1343_suspend(struct device *dev)
 {
 	struct spi_device *spi = to_spi_device(dev);
-	
-	if(spi->irq >= 0 && device_may_wakeup(dev))
+
+	if (spi->irq >= 0 && device_may_wakeup(dev))
 		enable_irq_wake(spi->irq);
 
 	return 0;
@@ -582,7 +589,7 @@ static int ds1343_resume(struct device *dev)
 {
 	struct spi_device *spi = to_spi_device(dev);
 
-	if(spi->irq >= 0 && device_may_wakeup(dev))
+	if (spi->irq >= 0 && device_may_wakeup(dev))
 		disable_irq_wake(spi->irq);
 
 	return 0;
