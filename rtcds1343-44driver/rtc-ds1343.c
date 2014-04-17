@@ -70,6 +70,7 @@ static const struct spi_device_id ds1343_id[] = {
 	{ "ds1344", 1 },
 	{ }
 };
+MODULE_DEVICE_TABLE(spi, ds1343_id);
 
 struct ds1343_priv {
 	struct spi_device *spi;
